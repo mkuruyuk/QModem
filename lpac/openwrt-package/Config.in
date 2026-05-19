@@ -1,0 +1,32 @@
+if PACKAGE_lpac
+
+config LPAC_WITH_PCSC
+	bool "PC/SC backend support"
+	default n
+	help
+	  Enable PC/SC smart card reader backend.
+	  Requires libpcsclite and pcscd.
+
+config LPAC_WITH_AT
+	bool "AT command backend support"
+	default y
+	help
+	  Enable AT command backend for eSIM management.
+	  Works with modems that support AT+CSIM commands.
+
+config LPAC_WITH_UQMI
+	bool "uqmi backend support"
+	default n
+	help
+	  Enable uqmi (QMI) backend for eSIM management.
+	  Requires uqmi package.
+
+config LPAC_WITH_MBIM
+	bool "MBIM backend support"
+	default y
+	help
+	  Enable MBIM backend for eSIM management.
+	  Required for Fibocom L850-GL and Foxconn T99W175.
+	  Requires libmbim package.
+
+endif
