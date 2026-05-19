@@ -616,6 +616,14 @@ set_if()
                     ;;
             esac
             ;; 
+        "foxconn")
+            case $driver in
+                "mbim")
+                    proto="none"
+                    protov6="none"
+                    ;;
+            esac
+            ;;
         "fibocom")
             case $platform in
                 "mediatek")
