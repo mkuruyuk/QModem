@@ -96,7 +96,8 @@ local function read_config()
     config.sim_slot      = config.sim_slot      or "0"
     config.at_device     = config.at_device     or ""
     config.mbim_device   = config.mbim_device   or "/dev/cdc-wdm0"
-    config.mbim_proxy    = config.mbim_proxy    or "0"
+    config.mbim_proxy    = config.mbim_proxy    or "1"
+    config.skip_slot_mapping = config.skip_slot_mapping or "1"
     config.reboot_method = config.reboot_method or "script"
 
     return config
@@ -353,6 +354,7 @@ function api_save_config()
         "qmi_device", "qmi_sim_slot", "sim_slot",
         "at_device",
         "mbim_device", "mbim_proxy",
+        "skip_slot_mapping", "custom_isd_r_aid",
         "reboot_method",
         "apdu_debug", "http_debug", "at_debug"
     }

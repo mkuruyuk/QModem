@@ -1,17 +1,17 @@
 -- /usr/lib/lua/luci/controller/lpac_esim.lua
--- LuCI controller for eSIM management via lpac-esim-qmi backend
+-- LuCI controller for eSIM management via lpac-esim backend
 -- Version: 1.2.1
 -- License: GPL-2.0
 --
 -- Architecture: integration adapter between browser (JS Fetch API) and backend script.
--- Modem/eUICC logic lives in lpac-esim-qmi (POSIX shell).
+-- Modem/eUICC logic lives in lpac-esim (POSIX shell).
 -- Controller handles: UCI config, CLI flag building, input validation, JSON response wrapping.
 --
 -- Note: write endpoints require POST only.
 -- CSRF token validation is omitted for compatibility with older LuCI/OpenWrt builds.
 -- This is an intentional tradeoff for a home-router local-network scenario.
 --
--- Flow:  Browser → Fetch → LuCI (uhttpd) → lpac_esim.lua → lpac-esim-qmi --api → stdout JSON → Browser
+-- Flow:  Browser → Fetch → LuCI (uhttpd) → lpac_esim.lua → lpac-esim --api → stdout JSON → Browser
 -- Async: Browser POST → lua → script --api switch → {"processing"} → Browser polls lock-status
 
 module("luci.controller.lpac_esim", package.seeall)

@@ -41,13 +41,13 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./src/usr/bin/lpac-esim $(1)/usr/bin/lpac-esim
 
-	# LuCI controller
+	# LuCI controller (use src/ version - newer v1.3.5)
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-	$(INSTALL_DATA) ./luasrc/controller/lpac_esim.lua $(1)/usr/lib/lua/luci/controller/lpac_esim.lua
+	$(INSTALL_DATA) ./src/usr/lib/lua/luci/controller/lpac_esim.lua $(1)/usr/lib/lua/luci/controller/lpac_esim.lua
 
-	# LuCI views
+	# LuCI views (use src/ version - newer with diagnostics tab)
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/view/lpac_esim
-	$(CP) ./luasrc/view/lpac_esim/*.htm $(1)/usr/lib/lua/luci/view/lpac_esim/
+	$(CP) ./src/usr/lib/lua/luci/view/lpac_esim/*.htm $(1)/usr/lib/lua/luci/view/lpac_esim/
 
 	# Static web assets (JS, CSS)
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/lpac-esim
