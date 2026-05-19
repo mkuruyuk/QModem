@@ -1007,9 +1007,21 @@ mbim_dial(){
         if ! pidof mbim-proxy >/dev/null 2>&1; then
             m_debug "starting mbim-proxy daemon for eSIM coexistence"
             $proxy_bin &
-            sleep 1
+            # Wait for proxy to be fully ready (open device + listen socket)
+            local proxy_wait=0
+            while [ $proxy_wait -lt 5 ]; do
+                sleep 1
+                proxy_wait=$((proxy_wait + 1))
+                if pidof mbim-proxy >/dev/null 2>&1; then
+                    # Verify proxy socket is actually listening
+                    if [ -S /tmp/mbim-proxy-cdc-wdm0 ] || [ -S /var/run/mbim-proxy-cdc-wdm0 ]; then
+                        m_debug "mbim-proxy ready after ${proxy_wait}s"
+                        break
+                    fi
+                fi
+            done
             if ! pidof mbim-proxy >/dev/null 2>&1; then
-                m_debug "warning: mbim-proxy failed to start, falling back to direct access"
+                m_debug "warning: mbim-proxy failed to start after 5s, falling back to direct access"
                 qmi_dial
                 return
             fi
