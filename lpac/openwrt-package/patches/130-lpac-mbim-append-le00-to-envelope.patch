@@ -1,0 +1,26 @@
+--- a/driver/apdu/mbim.c
++++ b/driver/apdu/mbim.c
+@@ -181,9 +181,21 @@ static int mbim_apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uin
+     struct mbim_data *mbim_priv = ctx->apdu.interface->userdata;
+     g_autoptr(GError) error = NULL;
+ 
++    const guint8 *apdu = tx;
++    guint32 apdu_len = tx_len;
++    g_autofree guint8 *apdu_with_le = NULL;
++
++    if (tx_len >= 5 && tx[1] == 0xE2 && tx_len == (guint32)tx[4] + 5) {
++        apdu_with_le = g_malloc(tx_len + 1);
++        memcpy(apdu_with_le, tx, tx_len);
++        apdu_with_le[tx_len] = 0x00;
++        apdu = apdu_with_le;
++        apdu_len = tx_len + 1;
++    }
++
+     MbimMessage *request = mbim_message_ms_uicc_low_level_access_apdu_set_new(
+-        mbim_priv->last_channel_id, MBIM_UICC_SECURE_MESSAGING_NONE, MBIM_UICC_CLASS_BYTE_TYPE_EXTENDED, tx_len,
+-        tx, &error);
++        mbim_priv->last_channel_id, MBIM_UICC_SECURE_MESSAGING_NONE, MBIM_UICC_CLASS_BYTE_TYPE_EXTENDED, apdu_len,
++        apdu, &error);
+     if (!request) {
+         fprintf(stderr, "error: creating apdu message failed: %s\n", error->message);
+         return -1;

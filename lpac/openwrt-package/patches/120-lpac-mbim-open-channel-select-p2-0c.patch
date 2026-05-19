@@ -1,0 +1,11 @@
+--- a/driver/apdu/mbim.c
++++ b/driver/apdu/mbim.c
+@@ -213,7 +213,7 @@ static int mbim_apdu_interface_logic_channel_open(struct euicc_ctx *ctx, const u
+     g_autoptr(GError) error = NULL;
+     guint8 channel_id;
+ 
+-    MbimMessage *request = mbim_message_ms_uicc_low_level_access_open_channel_set_new(aid_len, aid, 0, 1, &error);
++    MbimMessage *request = mbim_message_ms_uicc_low_level_access_open_channel_set_new(aid_len, aid, 12, 1, &error);
+     if (!request) {
+         fprintf(stderr, "error: creating channel message failed: %s\n", error->message);
+         return -1;

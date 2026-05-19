@@ -1,0 +1,40 @@
+--- a/driver/apdu/mbim.c
++++ b/driver/apdu/mbim.c
+@@ -8,6 +8,8 @@
+ #include <time.h>
+ #include "mbim_helpers.h"
+ 
++#define ENV_SKIP_SLOT_MAPPING "LPAC_APDU_MBIM_SKIP_SLOT_MAPPING"
++
+ struct mbim_data {
+ 	const char *device_path;
+ 	int last_channel_id;
+@@ -16,6 +18,16 @@ struct mbim_data {
+ 	GMainContext *context;
+ 	MbimDevice *device;
+ };
++
++static gboolean skip_slot_mapping_enabled(void)
++{
++	const char *value = getenv(ENV_SKIP_SLOT_MAPPING);
++
++	return value &&
++	       (!g_ascii_strcasecmp(value, "1") ||
++	        !g_ascii_strcasecmp(value, "true") ||
++	        !g_ascii_strcasecmp(value, "yes"));
++}
+ 
+ static gboolean is_sim_available(struct mbim_data *mbim_priv)
+ {
+@@ -148,6 +160,11 @@ static int apdu_interface_connect(struct euicc_ctx *ctx)
+         return -1;
+     }
+ 
++    if (skip_slot_mapping_enabled()) {
++        fprintf(stderr, "info: skipping MBIM device slot mapping\n");
++        return 0;
++    }
++
+     return select_sim_slot(mbim_priv);
+ }
+ 
