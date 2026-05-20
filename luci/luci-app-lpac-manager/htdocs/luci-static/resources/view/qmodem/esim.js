@@ -118,13 +118,21 @@ function showEsimTab(tabId, el) {
 // Dynamically load eSIM JS modules
 function loadEsimModules() {
 	// Set BASE_URL for lpac-esim JS modules
-	window.BASE_URL = L.env.requestpath.replace(/\/+$/, '') + '/../esim/';
+	// In qmodem-next, L.env.requestpath = '/cgi-bin/luci/admin/modem/qmodem/esim'
+	// API endpoints are at: admin/modem/qmodem/esim/{chip,profiles,...}
+	var basePath = L.env.requestpath;
+	if (!basePath.match(/\/esim\/?$/)) {
+		basePath = basePath.replace(/\/+$/, '') + '/esim';
+	}
+	window.BASE_URL = basePath.replace(/\/+$/, '') + '/';
 
 	// Compatibility: provide apiGet/apiPost that lpac-esim JS expects
+	// Use plain fetch with LuCI CSRF token for compatibility
 	window.apiGet = function(endpoint) {
-		return L.request.get(window.BASE_URL + endpoint).then(function(res) {
-			return res.json();
-		});
+		return fetch(window.BASE_URL + endpoint, {
+			credentials: 'same-origin',
+			headers: { 'X-Requested-With': 'XMLHttpRequest' }
+		}).then(function(r) { return r.json(); });
 	};
 
 	window.apiPost = function(endpoint, params) {
@@ -132,11 +140,19 @@ function loadEsimModules() {
 		if (params) {
 			Object.keys(params).forEach(function(k) { body.append(k, params[k]); });
 		}
-		return L.request.post(window.BASE_URL + endpoint, body.toString(), {
-			'Content-Type': 'application/x-www-form-urlencoded'
-		}).then(function(res) {
-			return res.json();
-		});
+		// Add CSRF token if available
+		var token = document.querySelector('input[name="token"]');
+		if (token) body.append('token', token.value);
+
+		return fetch(window.BASE_URL + endpoint, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: {
+				'Content-Type': 'application/x-www-form-urlencoded',
+				'X-Requested-With': 'XMLHttpRequest'
+			},
+			body: body.toString()
+		}).then(function(r) { return r.json(); });
 	};
 
 	// Provide showTab compatibility function
