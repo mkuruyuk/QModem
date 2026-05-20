@@ -988,72 +988,25 @@ mbim_dial(){
     if [ -z "$apn" ];then
         apn="auto"
     fi
-    # Reset proxy flag (defensive - ensure no stale value from previous call)
+
+    # mbim-proxy coexistence (used for lpac/eSIM):
+    #
+    # The mbim-proxy daemon is managed by its own procd service
+    # (/etc/init.d/mbim-proxy, START=70) so it is already up before
+    # qmodem_network (START=99) reaches this point. Procd handles
+    # respawn on its own; we just probe pidof here and decide whether
+    # to pass `-p mbim-proxy` to quectel-CM-M.
+    #
+    # Falls back to a plain direct dial if any precondition is missing,
+    # so behaviour matches upstream QModem on builds without lpac.
     mbim_proxy_flag=""
-    # Check if mbim-proxy should be used (for eSIM/lpac coexistence)
-    if [ "$use_mbim_proxy" = "1" ]; then
-        # Check: quectel-CM-M must be available (supports -p flag)
-        if [ ! -e "/usr/bin/quectel-CM-M" ]; then
-            m_debug "quectel-CM-M not found, dialing directly"
-            qmi_dial
-            return
-        fi
-        # Find mbim-proxy binary
-        local proxy_bin=""
-        if [ -x /usr/libexec/mbim-proxy ]; then
-            proxy_bin="/usr/libexec/mbim-proxy"
-        elif [ -x /usr/lib/mbim-proxy ]; then
-            proxy_bin="/usr/lib/mbim-proxy"
-        elif [ -x /usr/bin/mbim-proxy ]; then
-            proxy_bin="/usr/bin/mbim-proxy"
-        fi
-        if [ -z "$proxy_bin" ]; then
-            m_debug "mbim-proxy not installed, dialing directly"
-            qmi_dial
-            return
-        fi
-        # Start mbim-proxy if not running
-        if ! pidof mbim-proxy >/dev/null 2>&1; then
-            m_debug "starting mbim-proxy daemon"
-            $proxy_bin &
-        fi
-        # Wait for proxy to be FULLY ready (socket listening)
-        # mbim-proxy uses abstract unix socket named "mbim-proxy"
-        # We verify by attempting a test connection with timeout
-        local proxy_ready=0
-        local wait_count=0
-        while [ $wait_count -lt 10 ]; do
-            sleep 1
-            wait_count=$((wait_count + 1))
-            if pidof mbim-proxy >/dev/null 2>&1; then
-                # Try to verify socket is accepting connections
-                # Use a quick nc/socat test or just check if process has opened the device
-                if [ -e "/dev/cdc-wdm0" ] && ls /proc/$(pidof mbim-proxy)/fd 2>/dev/null | head -1 >/dev/null 2>&1; then
-                    # Check if proxy has file descriptors open (means it opened the device)
-                    local proxy_pid=$(pidof mbim-proxy)
-                    if [ -n "$proxy_pid" ] && ls /proc/$proxy_pid/fd/ 2>/dev/null | wc -l | grep -q '[3-9]\|[1-9][0-9]'; then
-                        m_debug "mbim-proxy ready after ${wait_count}s (fd check passed)"
-                        proxy_ready=1
-                        break
-                    fi
-                fi
-            fi
-        done
-        if [ $proxy_ready -eq 0 ]; then
-            # Last resort: proxy might still work, give it one more second
-            sleep 2
-            if pidof mbim-proxy >/dev/null 2>&1; then
-                m_debug "mbim-proxy running (waited 12s total), attempting proxy dial"
-                proxy_ready=1
-            else
-                m_debug "mbim-proxy failed to start, dialing directly"
-                qmi_dial
-                return
-            fi
-        fi
+    if [ "$use_mbim_proxy" = "1" ] \
+        && [ -e "/usr/bin/quectel-CM-M" ] \
+        && pidof mbim-proxy >/dev/null 2>&1; then
         mbim_proxy_flag="-p mbim-proxy"
-        m_debug "using mbim-proxy for lpac/eSIM coexistence"
+        m_debug "mbim-proxy detected, sharing /dev/cdc-wdm* with lpac"
     fi
+
     qmi_dial
 }
 
@@ -1129,20 +1082,6 @@ qmi_dial()
     fi
     cmd_line="$cmd_line -f $log_file"
     while true; do
-        # If using mbim-proxy, verify it's still alive before each attempt
-        if [ -n "$mbim_proxy_flag" ]; then
-            if ! pidof mbim-proxy >/dev/null 2>&1; then
-                m_debug "mbim-proxy died, restarting it"
-                local proxy_bin=""
-                [ -x /usr/libexec/mbim-proxy ] && proxy_bin="/usr/libexec/mbim-proxy"
-                [ -x /usr/lib/mbim-proxy ] && proxy_bin="/usr/lib/mbim-proxy"
-                [ -x /usr/bin/mbim-proxy ] && proxy_bin="/usr/bin/mbim-proxy"
-                if [ -n "$proxy_bin" ]; then
-                    $proxy_bin &
-                    sleep 3
-                fi
-            fi
-        fi
         m_debug "dialing: $cmd_line"
         $cmd_line &
         echo "$!" > "${MODEM_RUNDIR}/${modem_config}_dir/$modem_config.pid"

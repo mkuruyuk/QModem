@@ -160,7 +160,20 @@ ensure_mbim_proxy() {
         return 0
     fi
 
-    # Try to start mbim-proxy
+    # Preferred path: ask the procd service. It is started before
+    # qmodem_network at boot, so this is mostly a safety net for the
+    # case where the user disabled it manually.
+    if [ -x /etc/init.d/mbim-proxy ]; then
+        /etc/init.d/mbim-proxy start >/dev/null 2>&1
+        local i=0
+        while [ $i -lt 5 ]; do
+            pidof mbim-proxy >/dev/null 2>&1 && return 0
+            sleep 1
+            i=$((i + 1))
+        done
+    fi
+
+    # Last-resort manual fallback (no procd unit available).
     local proxy_bin=""
     if [ -x /usr/libexec/mbim-proxy ]; then
         proxy_bin="/usr/libexec/mbim-proxy"
@@ -176,8 +189,8 @@ ensure_mbim_proxy() {
         return 0
     fi
 
-    m_debug "starting mbim-proxy daemon"
-    $proxy_bin &
+    m_debug "starting mbim-proxy daemon (manual fallback)"
+    $proxy_bin --no-exit >/dev/null 2>&1 &
     sleep 1
 
     if ! pidof mbim-proxy >/dev/null 2>&1; then

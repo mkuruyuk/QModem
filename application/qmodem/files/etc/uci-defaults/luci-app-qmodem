@@ -4,6 +4,11 @@
 /etc/init.d/qmodem_reboot enable
 /etc/init.d/qmodem_usage_stats enable
 
+# mbim-proxy procd unit (only acts when at least one modem-device has
+# use_mbim_proxy=1; otherwise start_service short-circuits). Enabling it
+# unconditionally here keeps behaviour identical for non-eSIM users.
+[ -x /etc/init.d/mbim-proxy ] && /etc/init.d/mbim-proxy enable
+
 uci -q batch <<-EOF >/dev/null
 	delete ucitrack.@qmodem[-1]
 	delete ucitrack.@qmodem[-1]
