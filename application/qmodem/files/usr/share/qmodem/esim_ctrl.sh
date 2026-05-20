@@ -112,14 +112,13 @@ acquire_esim_lock() {
     mkdir -p /tmp/lock
     # Check for stale lock (older than 5 minutes = 300 seconds)
     if [ -f "$ESIM_LOCK" ]; then
-        local file_time=$(stat -t "$ESIM_LOCK" 2>/dev/null | awk '{print $14}')
-        if [ -n "$file_time" ] && [ "$file_time" -gt 0 ] 2>/dev/null; then
-            local lock_age=$(( $(date +%s) - $file_time ))
-            if [ "$lock_age" -gt 300 ] 2>/dev/null; then
-                m_debug "removing stale eSIM lock (age: ${lock_age}s)"
-                lock -u "$ESIM_LOCK"
-                rm -f "$ESIM_LOCK"
-            fi
+        local file_time=""
+        # Use find -mmin for portable stale detection (works on all BusyBox)
+        local stale=$(find "$ESIM_LOCK" -mmin +5 2>/dev/null)
+        if [ -n "$stale" ]; then
+            m_debug "removing stale eSIM lock (older than 5 minutes)"
+            lock -u "$ESIM_LOCK"
+            rm -f "$ESIM_LOCK"
         fi
     fi
     lock -n "$ESIM_LOCK"

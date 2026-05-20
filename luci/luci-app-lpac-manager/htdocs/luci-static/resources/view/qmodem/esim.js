@@ -188,7 +188,15 @@ function checkConnectivity() {
 	window.apiGet('connectivity')
 		.then(function(data) {
 			if (checking) checking.style.display = 'none';
-			if (data && data.payload && data.payload.data && data.payload.data.online) {
+			// Handle both response formats:
+			// Lua controller returns: { success: true, connected: true/false }
+			// lpac-esim backend returns: { payload: { data: { online: true/false } } }
+			var isOnline = false;
+			if (data && data.connected) isOnline = true;
+			if (data && data.success && data.connected) isOnline = true;
+			if (data && data.payload && data.payload.data && data.payload.data.online) isOnline = true;
+
+			if (isOnline) {
 				if (online) online.style.display = 'block';
 				if (offline) offline.style.display = 'none';
 			} else {

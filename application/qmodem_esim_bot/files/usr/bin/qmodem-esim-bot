@@ -131,20 +131,46 @@ tg_answer_callback() {
 # Backend Calls
 ###############################################################################
 
+# Read backend config from lpac-esim UCI (same source as web UI)
+get_backend_flags() {
+    local backend=$(uci -q get lpac-esim.main.apdu_backend)
+    [ -z "$backend" ] && backend="mbim"
+    local flags="--api --backend $backend"
+    case "$backend" in
+        mbim)
+            local dev=$(uci -q get lpac-esim.main.mbim_device)
+            [ -n "$dev" ] && flags="$flags --mbim-device $dev"
+            local proxy=$(uci -q get lpac-esim.main.mbim_proxy)
+            [ "$proxy" = "1" ] && flags="$flags --mbim-proxy"
+            ;;
+        qmi)
+            local dev=$(uci -q get lpac-esim.main.qmi_device)
+            [ -n "$dev" ] && flags="$flags --device $dev"
+            local slot=$(uci -q get lpac-esim.main.qmi_sim_slot)
+            [ -n "$slot" ] && flags="$flags --slot $slot"
+            ;;
+        at)
+            local dev=$(uci -q get lpac-esim.main.at_device)
+            [ -n "$dev" ] && flags="$flags --at-device $dev"
+            ;;
+    esac
+    echo "$flags"
+}
+
 backend_chip() {
-    lpac-esim --api --backend mbim --mbim-proxy chip 2>/dev/null
+    lpac-esim $(get_backend_flags) chip 2>/dev/null
 }
 
 backend_profiles() {
-    lpac-esim --api --backend mbim --mbim-proxy profiles 2>/dev/null
+    lpac-esim $(get_backend_flags) profiles 2>/dev/null
 }
 
 backend_modem_status() {
-    lpac-esim --api --backend mbim --mbim-proxy modem-status 2>/dev/null
+    lpac-esim $(get_backend_flags) modem-status 2>/dev/null
 }
 
 backend_notif_list() {
-    lpac-esim --api --backend mbim --mbim-proxy notif-list 2>/dev/null
+    lpac-esim $(get_backend_flags) notif-list 2>/dev/null
 }
 
 backend_profile_enable() {
@@ -161,7 +187,7 @@ backend_profile_enable() {
 
 backend_profile_download() {
     local activation_code="$1"
-    lpac-esim --api --backend mbim --mbim-proxy download --lpa "$activation_code" 2>/dev/null
+    lpac-esim $(get_backend_flags) download --lpa "$activation_code" 2>/dev/null
 }
 
 backend_profile_delete() {
@@ -177,11 +203,11 @@ backend_profile_delete() {
 }
 
 backend_reboot() {
-    lpac-esim --api --backend mbim --mbim-proxy reboot-modem 2>/dev/null
+    lpac-esim $(get_backend_flags) reboot-modem 2>/dev/null
 }
 
 backend_notif_process() {
-    lpac-esim --api --backend mbim --mbim-proxy notif-process 2>/dev/null
+    lpac-esim $(get_backend_flags) notif-process 2>/dev/null
 }
 
 ###############################################################################
