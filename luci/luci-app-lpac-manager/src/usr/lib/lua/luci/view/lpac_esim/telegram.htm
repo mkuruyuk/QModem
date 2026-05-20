@@ -1,0 +1,98 @@
+<!-- /usr/lib/lua/luci/view/lpac_esim/telegram.htm -->
+
+<div id="telegram-loading" style="text-align: center; padding: 20px;">
+    <%:Loading Telegram Bot configuration...%>
+</div>
+
+<div id="telegram-content" style="display: none;">
+    <fieldset class="cbi-section">
+        <legend><%:Bot Settings%></legend>
+        <div class="cbi-section-node">
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Enable Bot%></label>
+                <div class="cbi-value-field">
+                    <input type="checkbox" id="tg-enabled" class="cbi-input-checkbox" />
+                    <div class="cbi-value-description"><%:Start Telegram bot service on boot%></div>
+                </div>
+            </div>
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Bot Token%></label>
+                <div class="cbi-value-field">
+                    <input type="text" id="tg-token" class="cbi-input-text" placeholder="123456789:ABCdefGHI-jklMNOpqrSTUvwxYZ" style="width: 100%;" />
+                    <div class="cbi-value-description"><%:Get from @BotFather on Telegram%></div>
+                </div>
+            </div>
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Chat ID%></label>
+                <div class="cbi-value-field">
+                    <input type="text" id="tg-chat-id" class="cbi-input-text" placeholder="987654321" />
+                    <div class="cbi-value-description"><%:Your Telegram user/group ID. Get from @userinfobot%></div>
+                </div>
+            </div>
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Poll Interval%></label>
+                <div class="cbi-value-field">
+                    <input type="number" id="tg-poll-interval" class="cbi-input-text" value="30" min="5" max="300" style="width: 80px;" />
+                    <span> <%:seconds%></span>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Security%></legend>
+        <div class="cbi-section-node">
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Allow Disruptive%></label>
+                <div class="cbi-value-field">
+                    <input type="checkbox" id="tg-allow-disruptive" class="cbi-input-checkbox" checked />
+                    <div class="cbi-value-description"><%:Allow profile switch, delete, and reboot via Telegram%></div>
+                </div>
+            </div>
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Require Confirmation%></label>
+                <div class="cbi-value-field">
+                    <input type="checkbox" id="tg-require-confirm" class="cbi-input-checkbox" checked />
+                    <div class="cbi-value-description"><%:Ask for confirmation before disruptive operations%></div>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Status%></legend>
+        <div class="cbi-section-node">
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Bot Status%></label>
+                <div class="cbi-value-field">
+                    <span id="tg-status-indicator">⏳ <%:Checking...%></span>
+                </div>
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Available Commands%></legend>
+        <div class="cbi-section-node">
+            <table class="table" style="width: 100%;">
+                <tr class="tr"><td class="td"><code>/status</code></td><td class="td"><%:Modem info & signal%></td></tr>
+                <tr class="tr"><td class="td"><code>/eid</code></td><td class="td"><%:Show eUICC EID%></td></tr>
+                <tr class="tr"><td class="td"><code>/profiles</code></td><td class="td"><%:List eSIM profiles%></td></tr>
+                <tr class="tr"><td class="td"><code>/enable &lt;ICCID&gt;</code></td><td class="td"><%:Switch active profile%></td></tr>
+                <tr class="tr"><td class="td"><code>/download &lt;LPA&gt;</code></td><td class="td"><%:Download new profile%></td></tr>
+                <tr class="tr"><td class="td"><code>/delete &lt;ICCID&gt;</code></td><td class="td"><%:Delete profile%></td></tr>
+                <tr class="tr"><td class="td"><code>/reboot</code></td><td class="td"><%:Restart modem%></td></tr>
+                <tr class="tr"><td class="td"><code>/notif</code></td><td class="td"><%:Process notifications%></td></tr>
+                <tr class="tr"><td class="td"><code>/help</code></td><td class="td"><%:Show all commands%></td></tr>
+            </table>
+        </div>
+    </fieldset>
+
+    <div class="cbi-page-actions">
+        <button class="cbi-button cbi-button-apply" onclick="saveTelegramConfig()"><%:Save & Apply%></button>
+        <button class="cbi-button cbi-button-action" onclick="testTelegramBot()"><%:Test Connection%></button>
+        <button class="cbi-button cbi-button-action" id="tg-startstop-btn" onclick="toggleTelegramBot()"><%:Start Bot%></button>
+    </div>
+</div>
+
+<script type="text/javascript" src="<%=resource%>/lpac-esim/js/lpac-esim-telegram.js"></script>

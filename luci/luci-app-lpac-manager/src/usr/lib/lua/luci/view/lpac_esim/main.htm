@@ -34,6 +34,7 @@
             <li class="cbi-tab"><a href="#" onclick="return showTab('notifications-tab', this)"><%:Notifications%></a></li>
             <li class="cbi-tab"><a href="#" onclick="return showTab('config-tab', this)"><%:Configuration%></a></li>
             <li class="cbi-tab"><a href="#" onclick="return showTab('diag-tab', this)"><%:Diagnostics%></a></li>
+            <li class="cbi-tab"><a href="#" onclick="return showTab('telegram-tab', this)"><%:Telegram Bot%></a></li>
         </ul>
     </div>
 
@@ -60,6 +61,10 @@
 
         <div id="diag-tab" class="cbi-tabcontent">
             <%+lpac_esim/diagnostics%>
+        </div>
+
+        <div id="telegram-tab" class="cbi-tabcontent">
+            <%+lpac_esim/telegram%>
         </div>
     </div>
 </div>
