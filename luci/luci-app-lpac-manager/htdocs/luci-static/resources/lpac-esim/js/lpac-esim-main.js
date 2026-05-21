@@ -35,6 +35,7 @@ function showTab(tabId, el) {
             case 'notifications-tab': if (typeof loadNotifications === 'function') loadNotifications(); break;
             case 'config-tab':        if (typeof loadConfig === 'function') loadConfig(); break;
             case 'diag-tab':          if (typeof loadSyslog === 'function') loadSyslog(); break;
+            case 'telegram-tab':      if (typeof loadTelegramConfig === 'function') { loadTelegramConfig(); checkBotStatus(); } break;
         }
     }
     return false;

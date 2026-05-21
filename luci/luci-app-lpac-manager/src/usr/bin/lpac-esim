@@ -724,36 +724,126 @@ api_notif_clear() {
     fi
 }
 
-# GET modem-status — parse mmcli text output, return as JSON
+# GET modem-status — query modem via AT commands (QModem compatible, no ModemManager needed)
 api_modem_status() {
-    if [ -z "$MMCLI_BIN" ]; then
-        api_err "no_mmcli" "mmcli binary not available on this system"
-        return 1
+    # Find AT port from QModem UCI config
+    local at_port=""
+    local modem_name=""
+    local cfg_section=""
+
+    # Try to find the first active modem-device in qmodem config
+    cfg_section=$(uci -q show qmodem 2>/dev/null | grep '=modem-device' | head -1 | cut -d'.' -f2 | cut -d'=' -f1)
+    if [ -n "$cfg_section" ]; then
+        at_port=$(uci -q get "qmodem.${cfg_section}.at_port" 2>/dev/null)
+        modem_name=$(uci -q get "qmodem.${cfg_section}.name" 2>/dev/null)
     fi
-    idx="$(detect_modem_index)"
-    if [ -z "$idx" ]; then
-        api_ok '{"available":false,"state":"not_detected"}' "no_modem"
+
+    # Fallback: use AT_DEVICE from lpac-esim config
+    [ -z "$at_port" ] && at_port="$AT_DEVICE"
+
+    # Fallback: try common paths
+    if [ -z "$at_port" ] || [ ! -e "$at_port" ]; then
+        for p in /dev/ttyUSB2 /dev/ttyUSB1 /dev/ttyUSB0; do
+            [ -e "$p" ] && { at_port="$p"; break; }
+        done
+    fi
+
+    if [ -z "$at_port" ] || [ ! -e "$at_port" ]; then
+        api_ok '{"available":false,"state":"no_at_port"}' "no_modem"
         return 0
     fi
-    out="${TMP_DIR}/mmcli-modem-${idx}.txt"
-    "$MMCLI_BIN" -m "$idx" > "$out" 2>/dev/null || {
-        api_err "mmcli_error" "Failed to read modem details from mmcli"
-        return 1
+
+    # Helper: send AT command and get response
+    _at_query() {
+        local cmd="$1"
+        local timeout="${2:-3}"
+        # Use sms_tool_q (QModem standard) or tom_modem
+        if [ -x /usr/bin/sms_tool_q ]; then
+            sms_tool_q -d "$at_port" at "$cmd" 2>/dev/null
+        elif [ -x /usr/bin/tom_modem ]; then
+            tom_modem -d "$at_port" -o a -c "$cmd" 2>/dev/null
+        elif [ -x /usr/bin/sms_tool ]; then
+            sms_tool -d "$at_port" at "$cmd" 2>/dev/null
+        else
+            # Last resort: direct write/read (unreliable but better than nothing)
+            printf '%s\r' "$cmd" > "$at_port" 2>/dev/null
+            sleep 1
+            cat "$at_port" 2>/dev/null &
+            local cpid=$!
+            sleep 1
+            kill "$cpid" 2>/dev/null
+        fi
     }
-    m_model="$(mm_field "$out" "model")"
-    m_op="$(mm_field "$out" "operator name")"
-    m_st="$(mm_field "$out" "state")"
-    m_sig="$(mm_field "$out" "signal quality")"
-    m_tech="$(mm_field "$out" "access tech")"
-    # Use jq for safe JSON construction (handles operator names with special chars)
+
+    # Query modem info via AT commands
+    local m_model="-"
+    local m_op="-"
+    local m_tech="-"
+    local m_sig="-"
+    local m_state="unknown"
+
+    # Model (ATI or AT+CGMM)
+    local ati_resp=$(_at_query "ATI" 2)
+    if [ -n "$ati_resp" ]; then
+        m_model=$(echo "$ati_resp" | grep -i 'model\|revision\|manufacturer' | head -1 | sed 's/.*: *//')
+        [ -z "$m_model" ] && m_model=$(echo "$ati_resp" | head -1)
+    fi
+    [ -z "$m_model" ] || [ "$m_model" = "" ] && m_model="${modem_name:-unknown}"
+
+    # Operator (AT+COPS?)
+    local cops_resp=$(_at_query "AT+COPS?" 2)
+    if echo "$cops_resp" | grep -q '+COPS:'; then
+        m_op=$(echo "$cops_resp" | grep '+COPS:' | sed 's/.*"\(.*\)".*/\1/')
+        # Access technology from COPS response (last digit)
+        local act=$(echo "$cops_resp" | grep '+COPS:' | sed 's/.*,\([0-9]*\)$/\1/')
+        case "$act" in
+            0) m_tech="GSM" ;;
+            2) m_tech="UTRAN" ;;
+            3) m_tech="GSM w/EGPRS" ;;
+            4) m_tech="UTRAN w/HSDPA" ;;
+            5) m_tech="UTRAN w/HSUPA" ;;
+            6) m_tech="UTRAN w/HSDPA+HSUPA" ;;
+            7) m_tech="E-UTRAN (LTE)" ;;
+            12) m_tech="NR (5G)" ;;
+            13) m_tech="E-UTRAN+NR" ;;
+        esac
+    fi
+
+    # Signal quality (AT+CSQ)
+    local csq_resp=$(_at_query "AT+CSQ" 2)
+    if echo "$csq_resp" | grep -q '+CSQ:'; then
+        local csq_val=$(echo "$csq_resp" | grep '+CSQ:' | sed 's/+CSQ: *\([0-9]*\).*/\1/')
+        if [ -n "$csq_val" ] && [ "$csq_val" != "99" ]; then
+            # Convert CSQ (0-31) to approximate dBm and percentage
+            local dbm=$(( csq_val * 2 - 113 ))
+            local pct=$(( csq_val * 100 / 31 ))
+            m_sig="${pct}% (${dbm} dBm)"
+        else
+            m_sig="No signal"
+        fi
+    fi
+
+    # Registration state (AT+CREG? or AT+CEREG?)
+    local reg_resp=$(_at_query "AT+CEREG?" 2)
+    if echo "$reg_resp" | grep -q '+CEREG:'; then
+        local reg_stat=$(echo "$reg_resp" | grep '+CEREG:' | sed 's/+CEREG: *[0-9]*,\([0-9]*\).*/\1/')
+        case "$reg_stat" in
+            0) m_state="Not registered" ;;
+            1) m_state="Registered (Home)" ;;
+            2) m_state="Searching" ;;
+            3) m_state="Registration denied" ;;
+            5) m_state="Registered (Roaming)" ;;
+            *) m_state="Unknown ($reg_stat)" ;;
+        esac
+    fi
+
     "$JQ_BIN" -nc \
-        --arg idx   "$idx" \
         --arg model "$m_model" \
-        --arg state "$m_st" \
+        --arg state "$m_state" \
         --arg op    "$m_op" \
         --arg tech  "$m_tech" \
         --arg sig   "$m_sig" \
-        '{"type":"lpa","payload":{"code":0,"message":"success","data":{"available":true,"modem_index":$idx,"model":$model,"state":$state,"operator":$op,"access_tech":$tech,"signal_quality":$sig}}}'
+        '{"type":"lpa","payload":{"code":0,"message":"success","data":{"available":true,"model":$model,"state":$state,"operator":$op,"access_tech":$tech,"signal_quality":$sig}}}'
 }
 
 # GET lock-status — for frontend polling to know when a background op is done

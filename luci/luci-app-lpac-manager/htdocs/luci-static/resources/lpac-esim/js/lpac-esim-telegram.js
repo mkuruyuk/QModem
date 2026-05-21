@@ -1,10 +1,14 @@
 /* lpac-esim-telegram.js — v1.0.0 */
 'use strict';
 
-(function() {
+// Auto-init when apiGet is already available (qmodem-next context where
+// window.apiGet is set before scripts load). In legacy LuCI, apiGet is
+// defined in lpac-esim-main.js which may load after this file, so the
+// showTab() lazy-load mechanism calls loadTelegramConfig() explicitly.
+if (typeof apiGet === 'function') {
     loadTelegramConfig();
     checkBotStatus();
-})();
+}
 
 function loadTelegramConfig() {
     apiGet('telegram_config')
