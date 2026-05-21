@@ -906,29 +906,64 @@ do_simslot() {
         *)       at_cmd="AT^SWITCH_SLOT=$slot" ;;
     esac
 
-    local resp
-    resp=$(sms_tool_q -d "$at_port" at "$at_cmd" 2>/dev/null)
+    # Send switch command (response may not contain "OK" on some modems)
+    sms_tool_q -d "$at_port" at "$at_cmd" >/dev/null 2>&1
+
+    # Wait for modem to process the switch
+    sleep 3
+
+    # Verify by querying current slot
+    local verify_resp="" actual_slot="?"
+    case "$manufacturer" in
+        foxconn)
+            verify_resp=$(sms_tool_q -d "$at_port" at "AT^SWITCH_SLOT?" 2>/dev/null)
+            if echo "$verify_resp" | grep -qi "SIM1"; then
+                actual_slot="0"
+            elif echo "$verify_resp" | grep -qi "SIM2"; then
+                actual_slot="1"
+            fi
+            ;;
+        quectel)
+            verify_resp=$(sms_tool_q -d "$at_port" at "AT+QUIMSLOT?" 2>/dev/null)
+            if echo "$verify_resp" | grep -q "+QUIMSLOT:"; then
+                actual_slot=$(echo "$verify_resp" | grep "+QUIMSLOT:" | grep -o '[0-9]' | head -1)
+            fi
+            ;;
+    esac
 
     local slot_name="Slot $slot"
+    local actual_name="Slot $actual_slot"
     [ "$manufacturer" = "foxconn" ] && {
         [ "$slot" = "0" ] && slot_name="SIM Card"
         [ "$slot" = "1" ] && slot_name="eSIM"
+        [ "$actual_slot" = "0" ] && actual_name="SIM Card"
+        [ "$actual_slot" = "1" ] && actual_name="eSIM"
     }
 
-    if echo "$resp" | grep -qi "OK"; then
+    if [ "$actual_slot" = "$slot" ]; then
         uci -q set "qmodem.${modem_sec}.sim_slot=$slot"
         uci -q commit qmodem
-        # Internet may drop — use retry to send result after reconnect
+        # Internet may drop — use retry
         tg_send_retry "✅ <b>SIM Slot Switched</b>
 
-Aktif: <b>$slot_name</b>
-Modem reconnected." \
+Aktif: <b>$slot_name</b>" \
             "[[{\"text\":\"🔄 SIM Switch\",\"callback_data\":\"menu:simswitch\",\"style\":\"primary\"},{\"text\":\"📱 EID Info\",\"callback_data\":\"menu:eid\"}],[{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
+    elif [ "$actual_slot" = "?" ]; then
+        # Could not verify (AT port may be temporarily unavailable during switch)
+        # Assume success if we got here without error, verify later
+        uci -q set "qmodem.${modem_sec}.sim_slot=$slot"
+        uci -q commit qmodem
+        tg_send_retry "⚠️ <b>SIM Switch sent</b>
+
+Target: <b>$slot_name</b>
+Verifikasi tidak tersedia (modem reconnecting).
+Cek SIM Switch menu setelah modem online." \
+            "[[{\"text\":\"🔄 Cek Status\",\"callback_data\":\"menu:simswitch\",\"style\":\"primary\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
     else
         tg_send_retry "❌ <b>SIM Switch Gagal</b>
 
-Command: <code>$at_cmd</code>
-Modem tidak support atau slot tidak tersedia." \
+Target: $slot_name
+Actual: <b>$actual_name</b> (tidak berubah)" \
             "[[{\"text\":\"🔄 Retry\",\"callback_data\":\"menu:simswitch\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
     fi
 }
