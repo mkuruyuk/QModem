@@ -768,52 +768,66 @@ Mohon tunggu..."
 
     # Check if backend returned "processing" (async operation)
     if [ "$msg" = "processing" ]; then
-        tg_send "⏳ Download sedang diproses backend...
-Menunggu hasil (max 3 menit)..."
-        local lock_result
-        lock_result=$(poll_lock_result 180)
-        local poll_rc=$?
-        if [ $poll_rc -eq 0 ]; then
-            # Check result: look for explicit failure indicators
-            local is_error=0
+        tg_send "⏳ Download sedang diproses...
+Menunggu hasil..."
+        # Poll immediately first (operation may fail fast before 5s delay)
+        sleep 2
+        local lock_result="" poll_rc=0
+        local lock_raw
+        lock_raw=$(lpac_api lock-status)
+        local locked=$(echo "$lock_raw" | jq -r '.payload.data.locked // false')
+        if [ "$locked" != "true" ]; then
+            # Already finished (fast fail or fast success)
+            lock_result=$(echo "$lock_raw" | jq -r '.payload.data.last_result // empty' 2>/dev/null)
+        else
+            # Still processing — continue polling
+            lock_result=$(poll_lock_result 180)
+            poll_rc=$?
+        fi
+
+        # Analyze result
+        local is_error=0
+        if [ -z "$lock_result" ]; then
+            # Empty result — re-check one more time
+            sleep 2
+            local final_raw=$(lpac_api lock-status)
+            lock_result=$(echo "$final_raw" | jq -r '.payload.data.last_result // empty' 2>/dev/null)
+            # If still empty, check syslog for FAILED message
             if [ -z "$lock_result" ]; then
-                # Empty result but lock released — check lock-status one more time for message
-                local final_check
-                final_check=$(lpac_api lock-status)
-                local final_msg=$(echo "$final_check" | jq -r '.payload.data.last_result.message // .payload.message // ""' 2>/dev/null)
-                if echo "$final_msg" | grep -qi "fail\|error\|FAILED"; then
+                local syslog_check=$(logread -l 20 2>/dev/null | grep -i "lpac-esim.*FAIL\|download.*FAILED" | tail -1)
+                if [ -n "$syslog_check" ]; then
                     is_error=1
-                    lock_result="$final_msg"
-                fi
-            else
-                # Has result — check for failure
-                local res_success=$(echo "$lock_result" | jq -r '.success // empty' 2>/dev/null)
-                local res_msg=$(echo "$lock_result" | jq -r '.message // empty' 2>/dev/null)
-                if [ "$res_success" = "false" ] || [ "$res_success" = "error" ] || \
-                   echo "$res_msg" | grep -qi "fail\|error\|FAILED"; then
-                    is_error=1
-                    [ -n "$res_msg" ] && lock_result="$res_msg"
+                    lock_result=$(echo "$syslog_check" | sed 's/.*: //')
                 fi
             fi
+        fi
 
-            if [ "$is_error" = "1" ]; then
-                tg_send_inline "❌ <b>Download Gagal</b>
+        if [ -n "$lock_result" ] && [ "$is_error" = "0" ]; then
+            local res_success=$(echo "$lock_result" | jq -r '.success // empty' 2>/dev/null)
+            local res_msg=$(echo "$lock_result" | jq -r '.message // empty' 2>/dev/null)
+            [ -z "$res_msg" ] && res_msg="$lock_result"
+            if [ "$res_success" = "false" ] || [ "$res_success" = "error" ] || \
+               echo "$res_msg" | grep -qi "fail\|error\|FAILED"; then
+                is_error=1
+                lock_result="$res_msg"
+            fi
+        fi
+
+        if [ "$is_error" = "1" ]; then
+            tg_send_inline "❌ <b>Download Gagal</b>
 
 $lock_result" \
-                    '[[{"text":"📥 Coba Lagi","callback_data":"menu:download"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
-            else
-                tg_send_inline "✅ <b>Profile Downloaded</b>
-
-Gunakan Profile List untuk melihat dan switch.
-Jalankan Process Notifications jika profile belum aktif." \
-                    '[[{"text":"📋 Profile List","callback_data":"menu:profiles"},{"text":"🔔 Process Notif","callback_data":"act:notifprocess"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
-            fi
-        else
+                '[[{"text":"📥 Coba Lagi","callback_data":"menu:download"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+        elif [ $poll_rc -eq 124 ]; then
             tg_send_inline "⚠️ <b>Download timeout</b>
 
-Backend belum selesai setelah 3 menit.
 Cek Profile List untuk status." \
                 '[[{"text":"📋 Profile List","callback_data":"menu:profiles"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+        else
+            tg_send_inline "✅ <b>Profile Downloaded</b>
+
+Gunakan Profile List untuk melihat dan switch." \
+                '[[{"text":"📋 Profile List","callback_data":"menu:profiles"},{"text":"🔔 Process Notif","callback_data":"act:notifprocess"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
         fi
         return
     fi
