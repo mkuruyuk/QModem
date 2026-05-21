@@ -176,7 +176,7 @@ Pilih menu di bawah atau ketik perintah." "$kb"
 }
 
 ###############################################################################
-# UI: EID Info (emoji + storage + profile count)
+# UI: EID Info (full details + SIM Switch button)
 ###############################################################################
 
 send_eid_info() {
@@ -184,20 +184,49 @@ send_eid_info() {
     chip_raw=$(lpac_api chip)
     prof_raw=$(lpac_api profiles)
 
-    local eid fw free_nv prof_count
+    local eid svn fw free_nv free_v apps smdp smds prof_count
     eid=$(echo "$chip_raw" | jq -r '.payload.data.eidValue // "-"')
+    svn=$(echo "$chip_raw" | jq -r '.payload.data.EUICCInfo2.svn // "-"')
     fw=$(echo "$chip_raw" | jq -r '.payload.data.EUICCInfo2.euiccFirmwareVer // "-"')
     free_nv=$(echo "$chip_raw" | jq -r '.payload.data.EUICCInfo2.extCardResource.freeNonVolatileMemory // "-"')
+    free_v=$(echo "$chip_raw" | jq -r '.payload.data.EUICCInfo2.extCardResource.freeVolatileMemory // "-"')
+    apps=$(echo "$chip_raw" | jq -r '.payload.data.EUICCInfo2.extCardResource.installedApplication // "0"')
+    smdp=$(echo "$chip_raw" | jq -r '.payload.data.EuiccConfiguredAddresses.defaultDpAddress // "Not set"')
+    smds=$(echo "$chip_raw" | jq -r '.payload.data.EuiccConfiguredAddresses.rootDsAddress // "-"')
     prof_count=$(echo "$prof_raw" | jq -r '.payload.data | length // 0' 2>/dev/null)
     [ -z "$prof_count" ] && prof_count=0
 
     local nv_display="$free_nv B"
     [ "$free_nv" != "-" ] && [ "$free_nv" -gt 1024 ] 2>/dev/null && nv_display="$((free_nv / 1024)) KB"
 
-    tg_send_inline "📱 <b>EID:</b>
+    local text="📱 <b>eUICC / eSIM Chip Info</b>
+
+🔑 <b>EID:</b>
 <code>$eid</code>
-FW: $fw | Free: $nv_display | Profiles: $prof_count" \
-        '[[{"text":"📋 Profiles","callback_data":"menu:profiles"},{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+
+📊 <b>Chip Info:</b>
+  • SVN: <code>$svn</code>
+  • Firmware: <code>$fw</code>
+  • SM-DP+: <code>$smdp</code>
+  • SM-DS: <code>$smds</code>
+
+💾 <b>Storage:</b>
+  • Free NV: $nv_display
+  • Free RAM: $free_v B
+  • Apps: $apps
+
+📂 <b>Profiles:</b> $prof_count tersimpan"
+
+    # Get current SIM slot info for SIM Switch button
+    local sim_slot_text="SIM Switch"
+    local modem_sec=$(get_modem_section)
+    if [ -n "$modem_sec" ]; then
+        local cur_slot=$(uci -q get "qmodem.${modem_sec}.sim_slot" 2>/dev/null)
+        [ -n "$cur_slot" ] && sim_slot_text="SIM Slot: $cur_slot"
+    fi
+
+    tg_send_inline "$text" \
+        "[[{\"text\":\"📋 Profiles\",\"callback_data\":\"menu:profiles\",\"style\":\"primary\"},{\"text\":\"🔄 $sim_slot_text\",\"callback_data\":\"menu:simswitch\",\"style\":\"primary\"}],[{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
 }
 
 ###############################################################################
@@ -213,7 +242,7 @@ send_profile_list() {
 
     if [ "$count" = "0" ]; then
         tg_send_inline "📋 No profiles." \
-            '[[{"text":"📥 Download eSIM","callback_data":"menu:download"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+            '[[{"text":"📥 Download eSIM","callback_data":"menu:download","style":"success"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
         return
     fi
 
@@ -227,14 +256,14 @@ send_profile_list() {
         iccid=$(echo "$raw" | jq -r ".payload.data[$i].iccid")
 
         if [ "$state" = "enabled" ]; then
-            # Active: full-width blue button (locked)
-            kb_rows="${kb_rows}[{\"text\":\"✅ $name 🔒\",\"callback_data\":\"noop\"}],"
+            # Active: full-width BLUE button (locked) — style=primary
+            kb_rows="${kb_rows}[{\"text\":\"Aktif • $name 🔒\",\"callback_data\":\"noop\",\"style\":\"primary\"}],"
         else
-            # Inactive: 2 per row, red
+            # Inactive: 2 per row, RED — style=danger
             if [ -z "$inactive_row" ]; then
-                inactive_row="{\"text\":\"🔴 $name\",\"callback_data\":\"sw:$iccid\"}"
+                inactive_row="{\"text\":\"$name\",\"callback_data\":\"sw:$iccid\",\"style\":\"danger\"}"
             else
-                kb_rows="${kb_rows}[$inactive_row,{\"text\":\"🔴 $name\",\"callback_data\":\"sw:$iccid\"}],"
+                kb_rows="${kb_rows}[$inactive_row,{\"text\":\"$name\",\"callback_data\":\"sw:$iccid\",\"style\":\"danger\"}],"
                 inactive_row=""
             fi
         fi
@@ -243,8 +272,9 @@ send_profile_list() {
     # Flush remaining single inactive button
     [ -n "$inactive_row" ] && kb_rows="${kb_rows}[$inactive_row],"
 
-    # Bottom action buttons
-    kb_rows="${kb_rows}[{\"text\":\"⚡ Manage\",\"callback_data\":\"menu:manage\"},{\"text\":\"📥 Download\",\"callback_data\":\"menu:download\"}],"
+    # Bottom action buttons: Manage=primary, Download=success, Notif/Menu=default
+    kb_rows="${kb_rows}[{\"text\":\"⚡ Manage Profile\",\"callback_data\":\"menu:manage\",\"style\":\"primary\"}],"
+    kb_rows="${kb_rows}[{\"text\":\"📥 Download eSIM\",\"callback_data\":\"menu:download\",\"style\":\"success\"}],"
     kb_rows="${kb_rows}[{\"text\":\"🔔 Notif\",\"callback_data\":\"act:notifprocess\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]"
 
     tg_send_inline "$text" "[${kb_rows}]"
@@ -280,26 +310,39 @@ send_settings() {
     skip_slot=$(uci -q get lpac-esim.main.skip_slot_mapping || echo "1")
     debug_on=$(uci -q get lpac-esim.main.apdu_debug || echo "0")
 
-    local p_icon="🔴" s_icon="🔴" d_icon="🔴"
-    [ "$proxy" = "1" ] && p_icon="🔵"
-    [ "$skip_slot" = "1" ] && s_icon="🔵"
-    [ "$debug_on" = "1" ] && d_icon="🔵"
-
-    # Backend buttons: active one is blue emoji, others red
-    local qmi_i="🔴" mbim_i="🔴" at_i="🔴"
+    # Backend buttons: active=primary(blue), inactive=danger(red)
+    local qmi_s="danger" mbim_s="danger" at_s="danger"
     case "$backend" in
-        qmi)  qmi_i="🔵" ;;
-        mbim) mbim_i="🔵" ;;
-        at)   at_i="🔵" ;;
+        qmi)  qmi_s="primary" ;;
+        mbim) mbim_s="primary" ;;
+        at)   at_s="primary" ;;
     esac
 
+    # Toggle buttons: ON=primary(blue), OFF=danger(red)
+    local p_s="danger" ss_s="danger" d_s="danger"
+    [ "$proxy" = "1" ] && p_s="primary"
+    [ "$skip_slot" = "1" ] && ss_s="primary"
+    [ "$debug_on" = "1" ] && d_s="primary"
+
+    local p_t="OFF" ss_t="OFF" d_t="OFF"
+    [ "$proxy" = "1" ] && p_t="ON"
+    [ "$skip_slot" = "1" ] && ss_t="ON"
+    [ "$debug_on" = "1" ] && d_t="ON"
+
+    local text="⚙️ <b>Settings</b>
+
+<b>Backend:</b> <code>$backend</code>
+<b>MBIM Proxy:</b> $p_t
+<b>Skip Slot Mapping:</b> $ss_t
+<b>Debug:</b> $d_t"
+
     local kb="[
-        [{\"text\":\"$qmi_i QMI\",\"callback_data\":\"cfg:backend:qmi\"},{\"text\":\"$mbim_i MBIM\",\"callback_data\":\"cfg:backend:mbim\"},{\"text\":\"$at_i AT\",\"callback_data\":\"cfg:backend:at\"}],
-        [{\"text\":\"$p_icon Proxy\",\"callback_data\":\"cfg:toggle:mbim_proxy\"},{\"text\":\"$s_icon Skip Slot\",\"callback_data\":\"cfg:toggle:skip_slot_mapping\"}],
-        [{\"text\":\"$d_icon Debug\",\"callback_data\":\"cfg:toggle:apdu_debug\"}],
+        [{\"text\":\"Backend QMI\",\"callback_data\":\"cfg:backend:qmi\",\"style\":\"$qmi_s\"},{\"text\":\"Backend MBIM\",\"callback_data\":\"cfg:backend:mbim\",\"style\":\"$mbim_s\"},{\"text\":\"Backend AT\",\"callback_data\":\"cfg:backend:at\",\"style\":\"$at_s\"}],
+        [{\"text\":\"MBIM Proxy: $p_t\",\"callback_data\":\"cfg:toggle:mbim_proxy\",\"style\":\"$p_s\"},{\"text\":\"Skip Slot: $ss_t\",\"callback_data\":\"cfg:toggle:skip_slot_mapping\",\"style\":\"$ss_s\"}],
+        [{\"text\":\"Debug: $d_t\",\"callback_data\":\"cfg:toggle:apdu_debug\",\"style\":\"$d_s\"}],
         [{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]
     ]"
-    tg_send_inline "⚙️ <b>Settings</b> | Backend: <code>$backend</code>" "$kb"
+    tg_send_inline "$text" "$kb"
 }
 
 ###############################################################################
@@ -376,6 +419,49 @@ send_manage_menu() {
 
     kb_rows="${kb_rows}[{\"text\":\"📋 Profiles\",\"callback_data\":\"menu:profiles\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]"
     tg_send_inline "🗑 <b>Delete Profile</b>" "[${kb_rows}]"
+}
+
+###############################################################################
+# UI: SIM Switch (show current slot, buttons to switch)
+###############################################################################
+
+send_sim_switch() {
+    local modem_sec=$(get_modem_section)
+    if [ -z "$modem_sec" ]; then
+        tg_send_inline "❌ No modem detected." '[[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+        return
+    fi
+
+    # Get current SIM slot from AT command
+    local at_port=$(uci -q get "qmodem.${modem_sec}.at_port")
+    local cur_slot="?"
+    if [ -n "$at_port" ] && [ -e "$at_port" ]; then
+        local sim_resp
+        if [ -x /usr/bin/sms_tool_q ]; then
+            sim_resp=$(sms_tool_q -d "$at_port" at "AT+QUIMSLOT?" 2>/dev/null)
+        fi
+        if echo "$sim_resp" | grep -q "+QUIMSLOT:"; then
+            cur_slot=$(echo "$sim_resp" | grep "+QUIMSLOT:" | sed 's/+QUIMSLOT: *//;s/\r//')
+        else
+            # Try generic method
+            cur_slot=$(uci -q get "qmodem.${modem_sec}.sim_slot" 2>/dev/null || echo "1")
+        fi
+    fi
+
+    local text="🔄 <b>SIM Switch</b>
+
+Current SIM Slot: <b>$cur_slot</b>
+Modem: <code>$modem_sec</code>
+
+⚠️ Switching SIM slot may require modem restart."
+
+    # Slot buttons: current=primary(blue), other=danger(red)
+    local s1_style="danger" s2_style="danger"
+    [ "$cur_slot" = "1" ] && s1_style="primary"
+    [ "$cur_slot" = "2" ] && s2_style="primary"
+
+    tg_send_inline "$text" \
+        "[[{\"text\":\"SIM Slot 1\",\"callback_data\":\"simslot:1\",\"style\":\"$s1_style\"},{\"text\":\"SIM Slot 2\",\"callback_data\":\"simslot:2\",\"style\":\"$s2_style\"}],[{\"text\":\"📱 EID Info\",\"callback_data\":\"menu:eid\",\"style\":\"primary\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
 }
 
 ###############################################################################
@@ -541,11 +627,39 @@ handle_callback() {
         menu:download)  tg_answer_cb "$cb_id" "Download"; send_download_prompt ;;
         menu:notif)     tg_answer_cb "$cb_id" "Notifications"; send_notif_list ;;
         menu:settings)  tg_answer_cb "$cb_id" "Settings"; send_settings ;;
+        menu:simswitch) tg_answer_cb "$cb_id" "SIM Switch"; send_sim_switch ;;
         noop)           tg_answer_cb "$cb_id" "Profile aktif (locked)" ;; # locked button
 
         # Actions
         act:status)     tg_answer_cb "$cb_id" "Refreshing..."; send_modem_status ;;
         act:notifprocess) tg_answer_cb "$cb_id" "Processing..."; do_notif_process ;;
+        menu:eid)       tg_answer_cb "$cb_id" "EID Info"; send_eid_info ;;
+
+        # SIM Slot switch
+        simslot:*)
+            local slot="${data#simslot:}"
+            tg_answer_cb "$cb_id" "Switching to slot $slot..."
+            local modem_sec=$(get_modem_section)
+            local at_port=$(uci -q get "qmodem.${modem_sec}.at_port")
+            if [ -n "$at_port" ] && [ -e "$at_port" ]; then
+                local resp
+                if [ -x /usr/bin/sms_tool_q ]; then
+                    resp=$(sms_tool_q -d "$at_port" at "AT+QUIMSLOT=$slot" 2>/dev/null)
+                fi
+                if echo "$resp" | grep -qi "OK\|QUIMSLOT"; then
+                    uci -q set "qmodem.${modem_sec}.sim_slot=$slot"
+                    uci -q commit qmodem
+                    tg_send_inline "✅ SIM switched to Slot $slot.
+Modem may need restart." \
+                        "[[{\"text\":\"🔄 SIM Switch\",\"callback_data\":\"menu:simswitch\",\"style\":\"primary\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
+                else
+                    tg_send_inline "❌ SIM switch failed. Modem may not support this." \
+                        "[[{\"text\":\"🔄 Retry\",\"callback_data\":\"menu:simswitch\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]]"
+                fi
+            else
+                tg_send "❌ AT port not available."
+            fi
+            ;;
 
         # Profile switch (ask confirmation)
         sw:*)
@@ -563,7 +677,7 @@ ICCID: <code>$iccid</code>
 
 Internet akan TERPUTUS 30-60 detik.
 Lanjutkan?" \
-                    '[[{"text":"✅ Ya, Switch","callback_data":"confirm:yes"},{"text":"❌ Batal","callback_data":"cancel"}]]'
+                    '[[{"text":"✅ Ya, Switch","callback_data":"confirm:yes","style":"success"},{"text":"❌ Batal","callback_data":"cancel","style":"danger"}]]'
             else
                 do_switch "$iccid"
             fi
@@ -584,7 +698,7 @@ ICCID: <code>$iccid</code>
 
 ⚠️ Profile dihapus permanen!
 Lanjutkan?" \
-                '[[{"text":"🗑 Ya, Hapus","callback_data":"confirm:yes"},{"text":"❌ Batal","callback_data":"cancel"}]]'
+                '[[{"text":"🗑 Ya, Hapus","callback_data":"confirm:yes","style":"danger"},{"text":"❌ Batal","callback_data":"cancel"}]]'
             ;;
 
         # Confirmation
