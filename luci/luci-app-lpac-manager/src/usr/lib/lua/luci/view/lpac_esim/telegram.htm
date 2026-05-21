@@ -25,15 +25,15 @@
             <div class="cbi-value">
                 <label class="cbi-value-title"><%:Chat ID%></label>
                 <div class="cbi-value-field">
-                    <input type="text" id="tg-chat-id" class="cbi-input-text" placeholder="987654321" />
-                    <div class="cbi-value-description"><%:Your Telegram user/group ID. Get from @userinfobot%></div>
+                    <input type="text" id="tg-chat-id" class="cbi-input-text" placeholder="5385399301" />
+                    <div class="cbi-value-description"><%:Your Telegram user/group ID. Send /chatid to bot to get it%></div>
                 </div>
             </div>
             <div class="cbi-value">
                 <label class="cbi-value-title"><%:Poll Interval%></label>
                 <div class="cbi-value-field">
-                    <input type="number" id="tg-poll-interval" class="cbi-input-text" value="30" min="5" max="300" style="width: 80px;" />
-                    <span> <%:seconds%></span>
+                    <input type="number" id="tg-poll-interval" class="cbi-input-text" value="2" min="1" max="60" style="width: 80px;" />
+                    <span> <%:seconds (lower = more responsive buttons)%></span>
                 </div>
             </div>
         </div>
@@ -46,44 +46,64 @@
                 <label class="cbi-value-title"><%:Allow Disruptive%></label>
                 <div class="cbi-value-field">
                     <input type="checkbox" id="tg-allow-disruptive" class="cbi-input-checkbox" checked />
-                    <div class="cbi-value-description"><%:Allow profile switch, delete, and reboot via Telegram%></div>
+                    <div class="cbi-value-description"><%:Allow profile switch and delete via Telegram (internet will drop briefly)%></div>
                 </div>
             </div>
             <div class="cbi-value">
                 <label class="cbi-value-title"><%:Require Confirmation%></label>
                 <div class="cbi-value-field">
                     <input type="checkbox" id="tg-require-confirm" class="cbi-input-checkbox" checked />
-                    <div class="cbi-value-description"><%:Ask for confirmation before disruptive operations%></div>
+                    <div class="cbi-value-description"><%:Show Yes/Cancel buttons before disruptive operations%></div>
                 </div>
             </div>
         </div>
     </fieldset>
 
     <fieldset class="cbi-section">
-        <legend><%:Status%></legend>
+        <legend><%:Live Status%></legend>
         <div class="cbi-section-node">
             <div class="cbi-value">
-                <label class="cbi-value-title"><%:Bot Status%></label>
+                <label class="cbi-value-title"><%:Bot Process%></label>
                 <div class="cbi-value-field">
                     <span id="tg-status-indicator">⏳ <%:Checking...%></span>
                 </div>
             </div>
+            <div class="cbi-value">
+                <label class="cbi-value-title"><%:Last Poll%></label>
+                <div class="cbi-value-field">
+                    <span id="tg-last-poll">-</span>
+                </div>
+            </div>
         </div>
     </fieldset>
 
     <fieldset class="cbi-section">
-        <legend><%:Available Commands%></legend>
+        <legend><%:Bot Features (v2.0)%></legend>
         <div class="cbi-section-node">
             <table class="table" style="width: 100%;">
-                <tr class="tr"><td class="td"><code>/status</code></td><td class="td"><%:Modem info & signal%></td></tr>
-                <tr class="tr"><td class="td"><code>/eid</code></td><td class="td"><%:Show eUICC EID%></td></tr>
-                <tr class="tr"><td class="td"><code>/profiles</code></td><td class="td"><%:List eSIM profiles%></td></tr>
-                <tr class="tr"><td class="td"><code>/enable &lt;ICCID&gt;</code></td><td class="td"><%:Switch active profile%></td></tr>
+                <tr class="tr"><td class="td" style="width:40%"><b><%:Inline Buttons%></b></td><td class="td"><%:Tap profiles to switch, no typing needed%></td></tr>
+                <tr class="tr"><td class="td"><b><%:Menu Keyboard%></b></td><td class="td"><%:Persistent emoji buttons at bottom of chat%></td></tr>
+                <tr class="tr"><td class="td"><b><%:Confirmation%></b></td><td class="td"><%:Yes/Cancel before switch or delete%></td></tr>
+                <tr class="tr"><td class="td"><b><%:Settings%></b></td><td class="td"><%:Toggle backend/proxy/debug from Telegram%></td></tr>
+                <tr class="tr"><td class="td"><b><%:EID Info%></b></td><td class="td"><%:Rich chip info with storage and profile count%></td></tr>
+                <tr class="tr"><td class="td"><b><%:Download%></b></td><td class="td"><%:Send LPA string to download new profile%></td></tr>
+            </table>
+        </div>
+    </fieldset>
+
+    <fieldset class="cbi-section">
+        <legend><%:Quick Commands%></legend>
+        <div class="cbi-section-node">
+            <table class="table" style="width: 100%;">
+                <tr class="tr"><td class="td"><code>/eid</code></td><td class="td"><%:eUICC chip info%></td></tr>
+                <tr class="tr"><td class="td"><code>/profiles</code></td><td class="td"><%:List profiles with switch buttons%></td></tr>
+                <tr class="tr"><td class="td"><code>/status</code></td><td class="td"><%:Modem status%></td></tr>
                 <tr class="tr"><td class="td"><code>/download &lt;LPA&gt;</code></td><td class="td"><%:Download new profile%></td></tr>
+                <tr class="tr"><td class="td"><code>/enable &lt;ICCID&gt;</code></td><td class="td"><%:Switch active profile%></td></tr>
                 <tr class="tr"><td class="td"><code>/delete &lt;ICCID&gt;</code></td><td class="td"><%:Delete profile%></td></tr>
-                <tr class="tr"><td class="td"><code>/reboot</code></td><td class="td"><%:Restart modem%></td></tr>
                 <tr class="tr"><td class="td"><code>/notif</code></td><td class="td"><%:Process notifications%></td></tr>
-                <tr class="tr"><td class="td"><code>/help</code></td><td class="td"><%:Show all commands%></td></tr>
+                <tr class="tr"><td class="td"><code>/settings</code></td><td class="td"><%:Toggle settings from chat%></td></tr>
+                <tr class="tr"><td class="td"><code>/chatid</code></td><td class="td"><%:Show your Chat ID%></td></tr>
             </table>
         </div>
     </fieldset>

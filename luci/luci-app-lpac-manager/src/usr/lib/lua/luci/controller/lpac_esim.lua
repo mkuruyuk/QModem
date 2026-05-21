@@ -598,7 +598,7 @@ function api_telegram_config()
     config.enabled = config.enabled or "0"
     config.token = config.token or ""
     config.chat_id = config.chat_id or ""
-    config.poll_interval = config.poll_interval or "30"
+    config.poll_interval = config.poll_interval or "2"
     config.allow_disruptive = config.allow_disruptive or "1"
     config.require_confirm = config.require_confirm or "1"
     -- Mask token for security (only show first 8 and last 4 chars)
@@ -613,10 +613,13 @@ function api_telegram_config()
     send_json({ config = config })
 end
 
---- GET: Check if bot process is running
+--- GET: Check if bot process is running + read status file for live info
 function api_telegram_status()
     local running = false
+    local status_data = {}
     local pid_file = "/var/run/qmodem-esim-bot.pid"
+
+    -- Check PID
     local f = io.open(pid_file, "r")
     if f then
         local pid = f:read("*l")
@@ -629,7 +632,27 @@ function api_telegram_status()
             end
         end
     end
-    send_json({ running = running })
+
+    -- Read status file (written by bot every poll cycle)
+    local sf = io.open("/tmp/lpac-esim/telegram.status", "r")
+    if sf then
+        local raw = sf:read("*a")
+        sf:close()
+        if raw and raw ~= "" then
+            local ok, data = pcall(json.parse, raw)
+            if ok and data then
+                status_data = data
+            end
+        end
+    end
+
+    send_json({
+        running = running,
+        state = status_data.state or (running and "unknown" or "stopped"),
+        last_poll = status_data.last_poll,
+        last_rc = status_data.last_rc,
+        pid = status_data.pid
+    })
 end
 
 --- POST: Save telegram bot config to UCI

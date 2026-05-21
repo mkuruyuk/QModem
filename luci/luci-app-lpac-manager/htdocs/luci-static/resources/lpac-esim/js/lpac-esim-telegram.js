@@ -36,14 +36,27 @@ function checkBotStatus() {
         .then(function(data) {
             var el = document.getElementById('tg-status-indicator');
             var btn = document.getElementById('tg-startstop-btn');
+            var lastPoll = document.getElementById('tg-last-poll');
             if (data && data.running) {
-                el.innerHTML = '<span style="color: #28a745;">● Running</span>';
+                var stateText = data.state === 'ok' ? '● Running (connected)' :
+                                data.state === 'error' ? '● Running (connection error)' :
+                                '● Running';
+                var stateColor = data.state === 'ok' ? '#28a745' :
+                                 data.state === 'error' ? '#ffc107' : '#28a745';
+                el.innerHTML = '<span style="color: ' + stateColor + ';">' + stateText + '</span>';
                 btn.textContent = 'Stop Bot';
                 btn.setAttribute('data-action', 'stop');
             } else {
                 el.innerHTML = '<span style="color: #dc3545;">○ Stopped</span>';
                 btn.textContent = 'Start Bot';
                 btn.setAttribute('data-action', 'start');
+            }
+            // Show last poll time
+            if (lastPoll && data && data.last_poll) {
+                var ago = Math.floor(Date.now() / 1000) - data.last_poll;
+                lastPoll.textContent = ago < 5 ? 'just now' : ago + 's ago';
+            } else if (lastPoll) {
+                lastPoll.textContent = '-';
             }
         })
         .catch(function() {
