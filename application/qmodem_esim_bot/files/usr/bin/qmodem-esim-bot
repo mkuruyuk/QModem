@@ -319,6 +319,8 @@ send_modem_status() {
     resp=$(sms_tool_q -d "$at_port" at "AT+COPS?" 2>/dev/null)
     if echo "$resp" | grep -q '+COPS:'; then
         op=$(echo "$resp" | grep '+COPS:' | sed 's/.*"\(.*\)".*/\1/')
+        # If no quoted string found (numeric mode), extract raw
+        echo "$op" | grep -q "COPS" && op=$(echo "$resp" | grep '+COPS:' | awk -F, '{gsub(/"/,"",$3); print $3}')
         local act=$(echo "$resp" | grep '+COPS:' | grep -o ',[0-9]*$' | tr -d ',')
         case "$act" in
             7) tech="LTE" ;; 12) tech="NR 5G" ;; 13) tech="5G NSA" ;;
@@ -364,31 +366,36 @@ send_modem_status() {
         echo "$resp" | grep -q "scell:" && tech="LTE-A"
         echo "$resp" | grep -q "nr_band:" && tech="5G NSA"
 
-        # Primary cell
-        local pb=$(echo "$resp" | awk -F: '/^pcell:/ {print $3}' | cut -f1 -d" ")
-        local bw=$(echo "$resp" | awk -F: '/^pcell:/ {print $4}' | tr -d ' \r')
-        [ -n "$pb" ] && pband="B${pb} @${bw}"
+        # Primary cell band: "pcell: lte_band:3 lte_band_width:20.0MHz"
+        local pcell_line=$(echo "$resp" | grep "^pcell:")
+        local pb=$(echo "$pcell_line" | grep -o 'lte_band:[0-9]*' | head -1 | cut -d: -f2)
+        local bw=$(echo "$pcell_line" | grep -o 'lte_band_width:[0-9.]*MHz' | head -1 | cut -d: -f2)
+        [ -n "$pb" ] && pband="B${pb}"
+        [ -n "$bw" ] && pband="${pband} @${bw}"
 
-        pci=$(echo "$resp" | grep "pci:" | head -1 | awk -F: '{print $3}' | tr -d ' \r')
-        earfcn=$(echo "$resp" | grep "^channel:" | head -1 | awk -F: '{print $2}' | cut -f1 -d" " | tr -d ' \r')
+        # PCI & EARFCN: "channel:1325 pci:381" (line after pcell)
+        local chan_line=$(echo "$resp" | grep -A1 "^pcell:" | grep "channel:")
+        pci=$(echo "$chan_line" | grep -o 'pci:[0-9]*' | head -1 | cut -d: -f2)
+        earfcn=$(echo "$chan_line" | grep -o 'channel:[0-9]*' | head -1 | cut -d: -f2)
 
-        # Signal metrics
-        local v=""
-        v=$(echo "$resp" | awk -F[:,] '/^lte_rsrp:/ {print $2}' | tr -d ' \r')
-        [ -n "$v" ] && rsrp="$v"
-        v=$(echo "$resp" | awk -F[:,] '/rsrq:/ {print $4}' | tr -d ' \r')
-        [ -n "$v" ] && rsrq="$v"
-        v=$(echo "$resp" | awk -F[:,] '/^lte_rssi:/ {print $2}' | tr -d ' \r')
-        [ -n "$v" ] && rssi="$v"
-        v=$(echo "$resp" | awk -F[:,] '/lte_snr:/ {print $4}' | tr -d ' \r')
-        [ -n "$v" ] && [ "$v" != "NA" ] && sinr="$v"
+        # RSRP/RSRQ (pcell only): "lte_rsrp:-96.3dBm,rsrq:-16.2dB"
+        local rsrp_line=$(echo "$resp" | grep -A2 "^pcell:" | grep "lte_rsrp:")
+        rsrp=$(echo "$rsrp_line" | grep -o 'lte_rsrp:[^,]*' | head -1 | cut -d: -f2)
+        rsrq=$(echo "$rsrp_line" | grep -o 'rsrq:[^,]*' | head -1 | cut -d: -f2 | sed 's/dB$//')
+        [ -n "$rsrq" ] && rsrq="${rsrq}dB"
 
-        # CA bands
-        local scells=$(echo "$resp" | grep "^scell:" | awk -F: '{printf "B%s ", $3}' | sed 's/ *$//' | tr ' ' '+')
-        [ -n "$scells" ] && ca_bands="$scells"
+        # RSSI/SINR (pcell only): "lte_rssi:-60.4dBm,lte_snr:16.6dB"
+        local rssi_line=$(echo "$resp" | grep -A3 "^pcell:" | grep "lte_rssi:")
+        rssi=$(echo "$rssi_line" | grep -o 'lte_rssi:[^,]*' | head -1 | cut -d: -f2)
+        sinr=$(echo "$rssi_line" | grep -o 'lte_snr:[^,]*' | head -1 | cut -d: -f2)
+        [ "$sinr" = "NA" ] && sinr="-"
 
-        # NR band (5G NSA)
-        local nr_b=$(echo "$resp" | awk -F: '/^nr_band:/ {print $2}' | tr -d ' \r')
+        # CA bands from scell lines: "scell: lte_band:1 lte_band_width:15.0MHz"
+        local scell_bands=$(echo "$resp" | grep "^scell:" | grep -o 'lte_band:[0-9]*' | cut -d: -f2 | awk '{printf "B%s+", $1}' | sed 's/+$//')
+        [ -n "$scell_bands" ] && ca_bands="$scell_bands"
+
+        # NR band (5G NSA): "nr_band:n78" or "nr_band:78"
+        local nr_b=$(echo "$resp" | grep -o 'nr_band:[^ ]*' | head -1 | cut -d: -f2 | tr -d '\r')
         [ -n "$nr_b" ] && {
             [ -n "$ca_bands" ] && ca_bands="${ca_bands}+n${nr_b}" || ca_bands="n${nr_b}"
         }
