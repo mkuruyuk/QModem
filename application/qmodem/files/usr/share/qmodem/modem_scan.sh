@@ -349,6 +349,9 @@ match_config()
 
     [[ "$name" = *"T99W373"* ]] && name="t99w373"
 
+    #t77w968 / DW5821e (Dell branded Foxconn LTE Cat16)
+    [[ "$name" = *"t77w968"* ]] || [[ "$name" = *"dw5821"* ]] || [[ "$name" = *"snapdragon x20"* ]] && name="t77w968"
+
     [[ "$name" = *"dp25-42843-47"* ]] && name="t99w640"
 
     [[ "$name" = *"SIM8380G"* ]] && name="SIM8380G-M2"

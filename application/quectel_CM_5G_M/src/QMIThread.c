@@ -2373,7 +2373,13 @@ static int requestBaseBandVersion(PROFILE_T *profile) {
         
 #ifdef CONFIG_FOXCONN_FCC_AUTH
         // Check if this modem model needs FCC authentication
-        if (strstr(profile->BaseBandVersion, "T99W175")) {
+        // All Foxconn/Dell WWAN modules: T99W175, T99W373, T99W640,
+        // T77W968 (DW5821e), DW5932e, and future SDX-based modems
+        if (strstr(profile->BaseBandVersion, "T99W") ||
+            strstr(profile->BaseBandVersion, "T77W") ||
+            strstr(profile->BaseBandVersion, "DW58") ||
+            strstr(profile->BaseBandVersion, "DW59") ||
+            strstr(profile->BaseBandVersion, "SDX")) {
             profile->needs_fcc_auth = 1;
             dbg_time("Modem model %s requires FCC authentication", profile->BaseBandVersion);
         } else {

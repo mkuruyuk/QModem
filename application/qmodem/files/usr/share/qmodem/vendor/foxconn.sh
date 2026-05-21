@@ -64,8 +64,14 @@ function get_mode(){
         ucfg=$(at "$at_port" "${at_pre}USBSWITCH?")
         config_type=$(echo "$ucfg" | awk -F: '/USBSWITCH/ {gsub(/[ \r]/, "", $2); print toupper($2); exit}')
         case "$config_type" in
+            # T99W175: QMI=9025, MBIM=90D5
             *9025*) mode_num="1" ;;
             *90D5*) mode_num="0" ;;
+            # T77W968/DW5821e: QMI=81D8, MBIM=81D7
+            *81D8*) mode_num="1" ;;
+            *81D7*) mode_num="0" ;;
+            # Generic Foxconn: try by known MBIM/QMI PIDs
+            *E0B4*|*E0B5*) mode_num="0" ;;
         esac
 
         if [ -z "$mode_num" ]; then
@@ -107,12 +113,26 @@ function get_mode(){
 
 set_mode(){
     local mode=$1
+    # Determine correct PID for USB mode switch based on modem model
+    local current_pid=$(cat /sys/bus/usb/devices/*/idProduct 2>/dev/null | head -1)
     case "$platform" in
         "qualcomm")
             case "$mode" in
-                "mbim") mode_num="90d5" ;;
-                "rmnet") mode_num="9025" ;;
-                *) mode="90d5" ;;
+                "mbim")
+                    # Select MBIM PID based on current modem
+                    case "$name" in
+                        *t77w968*|*dw5821*) mode_num="81d7" ;;
+                        *) mode_num="90d5" ;;
+                    esac
+                    ;;
+                "rmnet")
+                    # Select QMI/RmNet PID based on current modem
+                    case "$name" in
+                        *t77w968*|*dw5821*) mode_num="81d8" ;;
+                        *) mode_num="9025" ;;
+                    esac
+                    ;;
+                *) mode_num="90d5" ;;
             esac
         ;;
         *)

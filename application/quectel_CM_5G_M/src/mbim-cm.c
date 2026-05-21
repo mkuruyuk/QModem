@@ -1805,7 +1805,13 @@ static int mbim_device_caps_query(PROFILE_T *profile) {
             mbim_debug("FirmwareInfo: %s", tmp);
 #ifdef CONFIG_FOXCONN_FCC_AUTH
             // Check if this modem model needs FCC authentication
-            if (strstr(profile->BaseBandVersion, "T99W175")) {
+            // All Foxconn/Dell WWAN modules with FCC lock: T99W175, T99W373,
+            // T99W640, T77W968 (DW5821e), DW5932e, etc.
+            if (strstr(profile->BaseBandVersion, "T99W") ||
+                strstr(profile->BaseBandVersion, "T77W") ||
+                strstr(profile->BaseBandVersion, "DW58") ||
+                strstr(profile->BaseBandVersion, "DW59") ||
+                strstr(profile->BaseBandVersion, "SDX")) {
                 profile->needs_fcc_auth = 1;
                 mbim_debug("Modem model %s requires FCC authentication", profile->BaseBandVersion);
             } else {
