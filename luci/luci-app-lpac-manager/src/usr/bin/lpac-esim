@@ -608,7 +608,36 @@ switch_profile() {
     syslog_msg "Profile Switch SUCCESS | New Active: $target_nick ($target_iccid)"
 
     notif_clear_queue
-    reboot_modem_hard
+
+    # After profile enable, the eUICC sends a REFRESH to the modem internally.
+    # Most MBIM modems (T99W175, L850-GL) will re-register on the network
+    # automatically within 5-15 seconds. A hard reboot (AT+CFUN=1,1) is NOT
+    # needed and on some hardware (T99W175 on ipq40xx) causes the USB/xHCI
+    # controller to die, requiring a full router reboot to recover.
+    #
+    # Instead, we just wait for the modem to come back online. The caller
+    # (esim_ctrl.sh or the API background job) handles reconnection.
+    talk "Waiting for modem to process profile switch..."
+    sleep 5
+
+    # Verify the new profile is active (optional, best-effort)
+    local verify_pf=""
+    local verify_retries=3
+    while [ $verify_retries -gt 0 ]; do
+        verify_pf="$(get_profiles_json 2>/dev/null)" && break
+        sleep 3
+        verify_retries=$((verify_retries - 1))
+    done
+    if [ -n "$verify_pf" ]; then
+        local new_active=$(echo "$verify_pf" | "$JQ_BIN" -r '.payload.data[]? | select(.profileState == "enabled") | .iccid' 2>/dev/null)
+        if [ "$new_active" = "$target_iccid" ]; then
+            ok "Verified: profile $target_nick is now active."
+        else
+            warn "Could not verify new active profile (modem may still be refreshing)."
+        fi
+    else
+        warn "Could not read profiles after switch (modem refreshing). This is normal."
+    fi
 
     # Skip live monitor in non-interactive / API mode
     if [ "$NONINTERACTIVE" != "1" ]; then
