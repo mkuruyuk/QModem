@@ -138,6 +138,17 @@ tg_answer_cb() {
         "$(jq -nc --arg id "$cb_id" --arg t "$text" '{callback_query_id:$id, text:$t}')" >/dev/null
 }
 
+# Edit an existing message (update in-place)
+tg_edit_msg() {
+    local msg_id="$1" text="$2" kb_json="$3"
+    local payload
+    payload=$(jq -nc --arg c "$CHAT_ID" --arg mid "$msg_id" --arg t "$text" \
+        '{chat_id:$c, message_id:($mid|tonumber), text:$t, parse_mode:"HTML"}')
+    [ -n "$kb_json" ] && payload=$(echo "$payload" | jq --argjson kb "$kb_json" \
+        '. + {reply_markup:{inline_keyboard:$kb}}')
+    tg_post "editMessageText" "$payload" >/dev/null
+}
+
 ###############################################################################
 # Backend Calls (lpac-esim --api)
 ###############################################################################
@@ -236,7 +247,7 @@ Tidak ada eSIM profile tersimpan." \
 🔵 = Aktif (locked)
 🔴 = Tidak aktif (tap untuk switch)
 "
-    local kb_rows="" i=0 active_iccid=""
+    local kb_rows="" i=0 active_iccid="" inactive_row=""
 
     while [ $i -lt "$count" ]; do
         local state name iccid provider
@@ -250,21 +261,28 @@ Tidak ada eSIM profile tersimpan." \
             text="${text}
 ✅ <b>$name</b> ($provider)
     <code>$iccid</code>"
-            # Active profile: blue locked button (full row)
+            # Active profile: full-width row (blue/locked)
             kb_rows="${kb_rows}[{\"text\":\"✅ $name 🔒\",\"callback_data\":\"noop\"}],"
         else
             text="${text}
 ⬜ $name ($provider)
     <code>$iccid</code>"
-            # Inactive: red switch button
-            kb_rows="${kb_rows}[{\"text\":\"🔴 $name\",\"callback_data\":\"sw:$iccid\"}],"
+            # Inactive: collect 2 per row
+            if [ -z "$inactive_row" ]; then
+                inactive_row="{\"text\":\"🔴 $name\",\"callback_data\":\"sw:$iccid\"}"
+            else
+                kb_rows="${kb_rows}[$inactive_row,{\"text\":\"🔴 $name\",\"callback_data\":\"sw:$iccid\"}],"
+                inactive_row=""
+            fi
         fi
         i=$((i + 1))
     done
+    # Flush remaining single inactive button
+    [ -n "$inactive_row" ] && kb_rows="${kb_rows}[$inactive_row],"
 
     # Add action buttons at bottom
-    kb_rows="${kb_rows}[{\"text\":\"📥 Download eSIM\",\"callback_data\":\"menu:download\"},{\"text\":\"🔔 Process Notif\",\"callback_data\":\"act:notifprocess\"}],"
-    kb_rows="${kb_rows}[{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]"
+    kb_rows="${kb_rows}[{\"text\":\"⚡ Manage Profile\",\"callback_data\":\"menu:manage\"},{\"text\":\"📥 Download\",\"callback_data\":\"menu:download\"}],"
+    kb_rows="${kb_rows}[{\"text\":\"🔔 Process Notif\",\"callback_data\":\"act:notifprocess\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]"
 
     local kb="[${kb_rows}]"
     tg_send_inline "$text" "$kb"
@@ -371,6 +389,80 @@ Pending: $count notifikasi" \
 }
 
 ###############################################################################
+# UI: Manage Profile (delete buttons, active locked out)
+###############################################################################
+
+send_manage_menu() {
+    local raw
+    raw=$(lpac_api profiles)
+    local count
+    count=$(echo "$raw" | jq -r '.payload.data | length' 2>/dev/null)
+    [ -z "$count" ] || [ "$count" = "null" ] && count=0
+
+    if [ "$count" = "0" ]; then
+        tg_send_inline "🗑 <b>Manage Profile</b>
+
+Tidak ada profile." '[[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+        return
+    fi
+
+    local text="🗑 <b>Manage Profile</b>
+
+⚠️ Profile <b>ACTIVE</b> dikunci (tidak bisa dihapus).
+Tap tombol 🗑 untuk hapus profile disabled.
+"
+    local kb_rows="" i=0 has_disabled=0
+
+    while [ $i -lt "$count" ]; do
+        local state name iccid
+        state=$(echo "$raw" | jq -r ".payload.data[$i].profileState")
+        name=$(echo "$raw" | jq -r ".payload.data[$i].profileNickname // .payload.data[$i].profileName // \"Profile $((i+1))\"")
+        iccid=$(echo "$raw" | jq -r ".payload.data[$i].iccid")
+
+        if [ "$state" = "enabled" ]; then
+            text="${text}
+🔵 <b>$name</b> 🔒"
+        else
+            text="${text}
+🔴 $name"
+            kb_rows="${kb_rows}[{\"text\":\"🗑 $name\",\"callback_data\":\"del:$iccid\"}],"
+            has_disabled=1
+        fi
+        i=$((i + 1))
+    done
+
+    if [ "$has_disabled" = "0" ]; then
+        kb_rows='[{"text":"Tidak ada profile disabled","callback_data":"noop"}],'
+    fi
+
+    kb_rows="${kb_rows}[{\"text\":\"📋 Profile List\",\"callback_data\":\"menu:profiles\"},{\"text\":\"🏠 Menu\",\"callback_data\":\"menu:main\"}]"
+    tg_send_inline "$text" "[${kb_rows}]"
+}
+
+###############################################################################
+# Lock Polling (wait for async backend operation to finish)
+###############################################################################
+
+poll_lock_result() {
+    local timeout="${1:-120}"
+    local elapsed=0
+    while [ $elapsed -lt "$timeout" ]; do
+        sleep 5
+        elapsed=$((elapsed + 5))
+        local lock_raw
+        lock_raw=$(lpac_api lock-status)
+        local locked
+        locked=$(echo "$lock_raw" | jq -r '.payload.data.locked // false')
+        if [ "$locked" != "true" ]; then
+            # Operation finished — return the last_result if available
+            echo "$lock_raw" | jq -r '.payload.data.last_result // empty' 2>/dev/null
+            return 0
+        fi
+    done
+    return 124  # timeout
+}
+
+###############################################################################
 # Actions (disruptive operations with confirmation)
 ###############################################################################
 
@@ -428,17 +520,49 @@ do_download() {
     local lpa="$1"
     tg_send "⏳ <b>Downloading profile...</b>
 Mohon tunggu..."
-    local result code
+    local result code msg
     result=$(lpac_api download --lpa "$lpa")
     code=$(echo "$result" | jq -r '.payload.code // 99')
+    msg=$(echo "$result" | jq -r '.payload.message // ""')
+
+    # Check if backend returned "processing" (async operation)
+    if [ "$msg" = "processing" ]; then
+        tg_send "⏳ Download sedang diproses backend...
+Menunggu hasil (max 3 menit)..."
+        local lock_result
+        lock_result=$(poll_lock_result 180)
+        if [ $? -eq 0 ] && [ -n "$lock_result" ]; then
+            local success
+            success=$(echo "$lock_result" | jq -r '.success // true' 2>/dev/null)
+            if [ "$success" = "false" ]; then
+                tg_send_inline "❌ <b>Download Gagal</b>
+
+$(echo "$lock_result" | jq -r '.message // "Unknown error"' 2>/dev/null)" \
+                    '[[{"text":"📥 Coba Lagi","callback_data":"menu:download"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+            else
+                tg_send_inline "✅ <b>Profile Downloaded</b>
+
+Gunakan Profile List untuk melihat dan switch.
+Jalankan Process Notifications jika profile belum aktif." \
+                    '[[{"text":"📋 Profile List","callback_data":"menu:profiles"},{"text":"🔔 Process Notif","callback_data":"act:notifprocess"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+            fi
+        else
+            tg_send_inline "⚠️ <b>Download masih diproses</b>
+
+Backend belum selesai setelah 3 menit.
+Cek Profile List untuk status terbaru." \
+                '[[{"text":"📋 Profile List","callback_data":"menu:profiles"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
+        fi
+        return
+    fi
+
     if [ "$code" = "0" ]; then
         tg_send_inline "✅ <b>Profile Downloaded</b>
 
 Gunakan Profile List untuk melihat dan switch." \
             '[[{"text":"📋 Profile List","callback_data":"menu:profiles"},{"text":"🔔 Process Notif","callback_data":"act:notifprocess"}],[{"text":"🏠 Menu","callback_data":"menu:main"}]]'
     else
-        local msg
-        msg=$(echo "$result" | jq -r '.payload.message // "Unknown error"')
+        [ -z "$msg" ] && msg="Unknown error"
         tg_send_inline "❌ <b>Download Gagal</b>
 
 Error: $msg" \
@@ -470,24 +594,24 @@ handle_callback() {
     # Security: only respond to authorized chat (string compare, 64-bit safe)
     [ -n "$CHAT_ID" ] && [ "$cb_chat" != "$CHAT_ID" ] && return
 
-    tg_answer_cb "$cb_id" ""
-
     case "$data" in
         # Navigation
-        menu:main)      clear_pending; send_main_menu ;;
-        menu:profiles)  send_profile_list ;;
-        menu:download)  send_download_prompt ;;
-        menu:notif)     send_notif_list ;;
-        menu:settings)  send_settings ;;
-        noop)           ;; # locked button, do nothing
+        menu:main)      tg_answer_cb "$cb_id" "Menu"; clear_pending; send_main_menu ;;
+        menu:profiles)  tg_answer_cb "$cb_id" "Loading profiles..."; send_profile_list ;;
+        menu:manage)    tg_answer_cb "$cb_id" "Manage profiles"; send_manage_menu ;;
+        menu:download)  tg_answer_cb "$cb_id" "Download"; send_download_prompt ;;
+        menu:notif)     tg_answer_cb "$cb_id" "Notifications"; send_notif_list ;;
+        menu:settings)  tg_answer_cb "$cb_id" "Settings"; send_settings ;;
+        noop)           tg_answer_cb "$cb_id" "Profile aktif (locked)" ;; # locked button
 
         # Actions
-        act:status)     send_modem_status ;;
-        act:notifprocess) do_notif_process ;;
+        act:status)     tg_answer_cb "$cb_id" "Refreshing..."; send_modem_status ;;
+        act:notifprocess) tg_answer_cb "$cb_id" "Processing..."; do_notif_process ;;
 
         # Profile switch (ask confirmation)
         sw:*)
             local iccid="${data#sw:}"
+            tg_answer_cb "$cb_id" "Switch profile..."
             if [ "$ALLOW_DISRUPTIVE" != "1" ]; then
                 tg_send "⛔ Operasi disruptive dinonaktifkan."
                 return
@@ -509,6 +633,7 @@ Lanjutkan?" \
         # Profile delete (ask confirmation)
         del:*)
             local iccid="${data#del:}"
+            tg_answer_cb "$cb_id" "Delete profile..."
             if [ "$ALLOW_DISRUPTIVE" != "1" ]; then
                 tg_send "⛔ Operasi disruptive dinonaktifkan."
                 return
@@ -525,6 +650,7 @@ Lanjutkan?" \
 
         # Confirmation
         confirm:yes)
+            tg_answer_cb "$cb_id" "Executing..."
             if load_pending; then
                 case "$PEND_ACTION" in
                     switch)   do_switch "$PEND_ARG" ;;
@@ -538,6 +664,7 @@ Lanjutkan?" \
             ;;
 
         cancel)
+            tg_answer_cb "$cb_id" "Dibatalkan"
             clear_pending
             tg_send_inline "❌ Dibatalkan." \
                 '[[{"text":"📋 Profile List","callback_data":"menu:profiles"},{"text":"🏠 Menu","callback_data":"menu:main"}]]'
@@ -546,6 +673,7 @@ Lanjutkan?" \
         # Settings toggles
         cfg:backend:*)
             local be="${data#cfg:backend:}"
+            tg_answer_cb "$cb_id" "Backend: $be"
             uci -q set lpac-esim.main.apdu_backend="$be"
             uci -q commit lpac-esim
             send_settings
@@ -554,6 +682,7 @@ Lanjutkan?" \
             local key="${data#cfg:toggle:}"
             local cur=$(uci -q get "lpac-esim.main.$key" || echo "0")
             local new=$([ "$cur" = "1" ] && echo "0" || echo "1")
+            tg_answer_cb "$cb_id" "$key: $([ "$new" = "1" ] && echo ON || echo OFF)"
             uci -q set "lpac-esim.main.$key=$new"
             uci -q commit lpac-esim
             send_settings
